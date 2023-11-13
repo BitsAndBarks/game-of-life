@@ -2,34 +2,17 @@
 from termcolor import colored
 from time import sleep
 
-# global variables
+# constants
 CELL_DEAD = 0  # default value of cell
 CELL_ALIVE = 1
-CELL_ACTIVE = 2  # marks the cell whose neighbours to check
-
-# variables
-cell_number = 1  # each cell gets a number, starting at 1 on (0,0)
-num_cols = 0  # no. of cols represents x-coordinate; later: len(grid)
-num_rows = 0  # no. of rows represents y-coordinate; later: len(grid[0])
+NEIGHBOURS = [(-1, -1), (-1, 0), (-1, 1),
+              (0, -1),           (0, 1),  # offset of 8 surrounding cells of currently active cell
+              (1, -1), (1, 0), (1, 1)]
 
 
 # function definitions:
-
 def set_cell_alive(grid, x, y):
     grid[y][x] = CELL_ALIVE  # swap x, y due to how python processes 2D arrays
-
-
-def set_active_cell(grid, i, j, it_count):
-    grid[i][j] = CELL_ACTIVE
-    # it_count += 1
-
-
-def cell_value_and_number(grid, y, x, cell_number):
-    cell_value = grid[x][y]
-    print(f"Value at ({y}, {x}): {cell_value}")  # (y, x) for proper view
-    cell_number += 1
-    print(f"Value in cell {cell_number}: {cell_value}")
-    return cell_value, cell_number
 
 
 # prints grid with active, alive and dead cells
@@ -38,8 +21,6 @@ def print_grid(grid):
         for char in row:
             if char == CELL_ALIVE:
                 print('🟦', end=" ")  # alive cells with value 1
-            elif char == CELL_ACTIVE:
-                print('🟨', end=" ")
             else:
                 print('⬜️', end=" ")  # dead cells with value 0
         print()  # new line after each row
@@ -59,72 +40,95 @@ def default_setup():
 
     print(colored('Quick setup...', 'grey', 'on_blue', ['bold']))
     sleep(1)
-    print_grid(default_grid)
+    return default_grid
 
 
-# board setup: grid and cells
-while True:
-    which_setup = input(
-        "Press 'q' for quick, pre-defined setup or 'i' for individual configuration of grid and alive cells.\n")
+# user specifies width and height of grid and which cells start as alive cells
+def individual_setup():
+    setup_width, setup_height = get_grid_dimensions()
+    setup_grid = [[CELL_DEAD for _ in range(setup_width)] for _ in range(setup_height)]
 
-    if which_setup not in ['q', 'i']:
-        print("Invalid command.")
-        continue
+    print(colored('Initialising grid...', 'grey', 'on_blue', ['bold']))
+    sleep(1)
 
-    if which_setup == 'q':
-        default_setup()
-        break
-    else:
-        # grid dimensions:
-        while True:
-            # TODO? currently needs to re-enter a correct x-axis value if y-axis value throws error. Separation
-            #  requires restructure.
-            try:
-                setup_width = int(input('Dimension of x-axis:\n'))
-                if not (setup_width > 0):
-                    raise ValueError()
-                setup_height = int(input('Dimension of y-axis:\n'))
-                if not (setup_height > 0):
-                    raise ValueError()
-            except ValueError as v:
-                print(colored(f"Invalid input. Please enter positive integers >= 1 for dimensions. {v}",
-                              'red', 'on_yellow', ['bold']))
+    set_alive_cells(setup_grid, setup_width, setup_height)
+    return setup_grid
 
-            print(colored('Initialising grid...', 'grey', 'on_blue', ['bold']))
-            setup_grid = [[CELL_DEAD for _ in range(setup_width)] for _ in range(setup_height)]
-            break  # breaks out of loop if input for coordinates is correct
 
-        sleep(1)
-        print('Place the glider on your grid.')
-        # glider placement:
-        while True:
-            user_input = input("Enter the cells which are alive as coordinates separated by a comma (e.g., 'x,y') or "
-                               "press 'n' to stop: ").strip()
+# helper for grid dimension on individual setup
+def get_grid_dimensions():
+    while True:
+        try:
+            width = int(input('Dimension of x-axis:\n'))
+            height = int(input('Dimension of y-axis:\n'))
+            if width <= 0 or height <= 0:
+                raise ValueError("Dimensions must be positive integers.")
+            return width, height
+        except ValueError as e:
+            print(colored(f"Invalid input. {e}", 'red', 'on_yellow', ['bold']))
 
-            if user_input == 'n':
-                break
 
-            try:
-                x_str, y_str = user_input.split(',')
-                x = int(x_str.strip())
-                y = int(y_str.strip())
+# helper for alive cells on individual setup (allows any form or shape)
+def set_alive_cells(grid, width, height):
+    print('Place the glider on your grid.')
+    while True:
+        user_input = input("Enter alive cells as 'x,y' or press 'n' to stop: ").strip()
+        if user_input == 'n':
+            break
 
-                if not (0 <= x < setup_width) or not (0 <= y < setup_height):
-                    raise IndexError("Coordinate out of grid bounds. Value must be between 0 and "
-                                     + str(setup_width - 1) + " for x-coordinate and between 0 and "
-                                     + str(setup_height - 1) + " for y-coordinate.")
+        try:
+            x, y = parse_coordinates(user_input, width, height)
+            set_cell_alive(grid, x, y)
+        except (ValueError, IndexError) as e:
+            print(colored(f"Invalid input. {e}", 'red', 'on_yellow', ['bold']))
 
-                set_cell_alive(setup_grid, x, y)
 
-            except ValueError:
-                print(
-                    "Invalid input format. Please enter coordinates as 'x,y'.")
-            except IndexError as e:
-                print(colored(f"Active cell not in range of grid. {e}",
-                              'red', 'on_yellow', ['bold']))
+# helper for parsing sole coordinates from user input
+def parse_coordinates(input_str, max_x, max_y):
+    x_str, y_str = input_str.split(',')
+    x = int(x_str.strip())
+    y = int(y_str.strip())
+    if not (0 <= x < max_x) or not (0 <= y < max_y):
+        raise IndexError("Coordinates out of bounds.")
+    return x, y
 
-        print_grid(setup_grid)
-        break
 
-print(colored('Setup done!', 'green', 'on_light_green', ['bold']))
+# function to update the state of a cell based on its current state and the number of alive neighbours
+def next_cell_state(grid, x, y, neighbours):
+    alive_ngb_count = 0
+    for dx, dy in neighbours:
+        actual_ngb_x = (x + dx) % len(grid)
+        actual_ngb_y = (y + dy) % len(grid[0])
+        alive_ngb_count += grid[actual_ngb_x][actual_ngb_y] == CELL_ALIVE
 
+    if grid[x][y] == CELL_ALIVE and (alive_ngb_count < 2 or alive_ngb_count > 3):
+        return CELL_DEAD
+    elif grid[x][y] == CELL_DEAD and alive_ngb_count == 3:
+        return CELL_ALIVE
+    return grid[x][y]
+
+
+# separate function to apply updated cell state to every cell in the grid; creates a new grid!
+def apply_rules_to_grid(grid):
+    new_grid = [[CELL_DEAD for _ in range(len(grid[0]))] for _ in range(len(grid))]
+    for x in range(len(grid)):
+        for y in range(len(grid[0])):
+            new_grid[x][y] = next_cell_state(grid, x, y, NEIGHBOURS)
+    return new_grid
+
+
+def main():
+    which_setup = input("Press 'q' for quick setup or 'i' for individual configuration:\n").lower()
+    current_grid = default_setup() if which_setup == 'q' else individual_setup()
+
+    print_grid(current_grid)
+    print(colored('Setup done!', 'green', 'on_light_green', ['bold']))
+
+    # apply rules and update the grid
+    for x in range(100):
+        current_grid = apply_rules_to_grid(current_grid)
+        print(f"----------iteration {x + 1}----------")
+        print_grid(current_grid)
+
+
+main()
